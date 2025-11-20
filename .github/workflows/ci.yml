@@ -1,0 +1,128 @@
+name: CI/CD - MERN Notes App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      DOCKER_CLIENT_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/notes-client:latest
+      DOCKER_SERVER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/notes-server:latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Gitleaks scan for secrets
+      - name: Gitleaks scan
+        uses: zricethezav/gitleaks-action@v2
+
+      # Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      # Install dependencies and build client
+      - name: Install client dependencies
+        run: cd client && npm install --legacy-peer-deps
+
+      - name: Build client
+        run: cd client && npm run build
+
+      # Install dependencies and test server
+      - name: Install server dependencies
+        run: cd server && npm install
+
+      - name: Verify server dependencies
+        run: cd server && npm list
+
+      # Upload the Gitleaks report
+      - name: Upload Gitleaks report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: results.sarif
+
+      # Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build Docker images
+      - name: Build client Docker image
+        run: docker build -f client/Dockerfile -t $DOCKER_CLIENT_IMAGE ./client
+
+      - name: Build server Docker image
+        run: docker build -f server/Dockerfile -t $DOCKER_SERVER_IMAGE ./server
+
+      # Test client Docker image
+      - name: Test client Docker image
+        run: |
+          docker run -d --name notes-client-test -p 3000:80 $DOCKER_CLIENT_IMAGE
+          sleep 10
+          curl -f http://localhost:3000 || echo "Client not responding"
+          docker stop notes-client-test
+          docker rm notes-client-test
+
+      # Test server Docker image
+      - name: Test server Docker image
+        run: |
+          docker run -d --name notes-server-test -p 5000:5000 $DOCKER_SERVER_IMAGE
+          sleep 10
+          curl -f http://localhost:5000/api/health || echo "Server not responding"
+          docker stop notes-server-test
+          docker rm notes-server-test
+
+      # Scan client image with Trivy
+      - name: Scan client image with Trivy
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ env.DOCKER_CLIENT_IMAGE }}
+          format: "json"
+          output: trivy-client-report.json
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+
+      # Scan server image with Trivy
+      - name: Scan server image with Trivy
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ env.DOCKER_SERVER_IMAGE }}
+          format: "json"
+          output: trivy-server-report.json
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+
+      # Upload Trivy scan reports
+      - name: Upload Trivy client report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-client-report
+          path: trivy-client-report.json
+
+      - name: Upload Trivy server report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-server-report
+          path: trivy-server-report.json
+
+      # Push Docker images to Docker Hub
+      - name: Push client Docker image
+        run: docker push $DOCKER_CLIENT_IMAGE
+
+      - name: Push server Docker image
+        run: docker push $DOCKER_SERVER_IMAGE
