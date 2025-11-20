@@ -60,7 +60,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build Docker images
+      # Build Docker images2
       - name: Build client Docker image
         run: docker build -f client/Dockerfile -t $DOCKER_CLIENT_IMAGE ./client
 
