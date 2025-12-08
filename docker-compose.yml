@@ -1,0 +1,116 @@
+version: "3.8"
+
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:7
+    container_name: notes-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: notesdb
+    networks:
+      - notes-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Express Backend Server
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: notes-server
+    ports:
+      - "5000:5000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/notesdb
+      PORT: 5000
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - notes-network
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:5000/api/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # React + Vite Frontend Client
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: notes-client
+    ports:
+      - "3000:80"
+    environment:
+      VITE_API_URL: http://localhost:5000/api
+    depends_on:
+      - server
+    networks:
+      - notes-network
+    restart: unless-stopped
+
+  # Prometheus for Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: notes-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - notes-network
+    restart: unless-stopped
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:9090 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Grafana for Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: notes-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - notes-network
+    restart: unless-stopped
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  notes-network:
+    driver: bridge

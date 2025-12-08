@@ -1,0 +1,31 @@
+# Prometheus Configuration for MERN Notes Application
+global:
+  scrape_interval: 15s # Default scrape interval
+  evaluation_interval: 15s # Default evaluation interval
+  external_labels:
+    monitor: "notes-app-monitor"
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # - 'alertmanager:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Express Backend Server Metrics
+  - job_name: "notes-server"
+    static_configs:
+      - targets: ["notes-server:5000"]
+    metrics_path: "/metrics"
+    scrape_interval: 5s
+    scrape_timeout: 5s

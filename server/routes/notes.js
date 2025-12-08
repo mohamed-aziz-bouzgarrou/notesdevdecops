@@ -1,6 +1,7 @@
-const express = require("express");
+import express from "express";
+import Note from "../models/Note.js";
+
 const router = express.Router();
-const Note = require("../models/Note");
 
 // Get all notes
 router.get("/", async (req, res) => {
@@ -80,4 +81,4 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
